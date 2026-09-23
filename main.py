@@ -118,7 +118,7 @@ def upload_file(file_path: str, session: requests.Session) -> dict:
     ]
 
     try:
-        resp = session.post(UPLOAD_URL, files=form_data, timeout=300)
+        resp = session.post(UPLOAD_URL, files=form_data, timeout=3600)
         elapsed = time.time() - start_time
         speed = file_size / elapsed / (1024 * 1024) if elapsed > 0 else 0
         print(f"   ✅ 完成 ({elapsed:.1f}s, {speed:.2f} MB/s)")

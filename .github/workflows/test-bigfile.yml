@@ -1,4 +1,4 @@
-name: 大文件上传测试（蓝奏云）
+name: 测试构建并上传到蓝奏云（大文件）
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       size_mb:
         description: '测试文件大小（MB）'
         required: false
-        default: '100'
+        default: '90'
 
 jobs:
   big-file-upload:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: 准备测试文件（生成不可压缩的随机数据）
         env:
-          SIZE_MB: ${{ github.event.inputs.size_mb || '100' }}
+          SIZE_MB: ${{ github.event.inputs.size_mb || '90' }}
         run: |
           set -euo pipefail
           mkdir -p dist
