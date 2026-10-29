@@ -1,0 +1,91 @@
+name: 测试构建并上传到蓝奏云（大文件）
+
+on:
+  workflow_dispatch:
+    inputs:
+      size_mb:
+        description: '测试文件大小（MB）'
+        required: false
+        default: '90'
+
+jobs:
+  big-file-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 准备测试文件（生成不可压缩的随机数据）
+        env:
+          SIZE_MB: ${{ github.event.inputs.size_mb || '90' }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          echo "==== 磁盘可用空间 ===="
+          df -h .
+
+          echo "==== 生成 ${SIZE_MB} MB 随机数据（不可压缩，保证 zip 体积真实）===="
+          dd if=/dev/urandom of=dist/big.bin bs=1M count="${SIZE_MB}" status=progress conv=fsync
+          ls -lh dist/big.bin
+
+          echo "==== 打包（-0 仅存储，最快且体积真实）===="
+          zip -0 -r dist/bigfile.zip dist/big.bin
+          rm -f dist/big.bin
+          ls -lh dist/bigfile.zip
+
+          echo "==== 校验 ===="
+          unzip -l dist/bigfile.zip | tail -n 4
+
+      - name: 记录开始时间
+        id: t0
+        run: echo "start=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: 上传到蓝奏云
+        id: lanzou
+        continue-on-error: true
+        uses: 1299172402/lanzou-release@main
+        with:
+          phpdisk_info: ${{ secrets.LANZOU_PHPDISK_INFO }}
+          folder_id: ${{ secrets.LANZOU_FOLDER_ID }}
+          file_path: 'dist/*.zip'
+
+      - name: 统计耗时与结果
+        env:
+          START: ${{ steps.t0.outputs.start }}
+          STATUS: ${{ steps.lanzou.outputs.uploaded_status }}
+          OUTCOME: ${{ steps.lanzou.outcome }}
+        run: |
+          set -euo pipefail
+          END=$(date +%s)
+          ELAPSED=$((END - START))
+          SIZE_BYTES=$(stat -c %s dist/bigfile.zip)
+          echo "上传结果: ${STATUS:-<无输出>}（step outcome: ${OUTCOME}）"
+          echo "总耗时  : ${ELAPSED}s"
+          echo "文件大小: $(numfmt --to=iec --suffix=B "${SIZE_BYTES}")"
+          if [ "${ELAPSED}" -gt 0 ]; then
+            awk -v s="${SIZE_BYTES}" -v t="${ELAPSED}" \
+              'BEGIN { printf "平均速率: %.2f MB/s\n", s / 1024 / 1024 / t }'
+          fi
+          {
+            echo "### 大文件上传测试结果"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| 文件大小 | $(numfmt --to=iec --suffix=B "${SIZE_BYTES}") |"
+            echo "| step outcome | \`${OUTCOME}\` |"
+            echo "| uploaded_status | \`${STATUS:-<无输出>}\` |"
+            echo "| 总耗时 | ${ELAPSED}s |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 保留产物（排查用）
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: bigfile-artifact
+          path: dist/bigfile.zip
+          retention-days: 3
+
+      - name: 判定最终结果
+        if: ${{ steps.lanzou.outcome != 'success' }}
+        run: |
+          echo "::error::大文件上传失败，请查看上方日志判断是写超时（TimeoutError: The write operation timed out）还是服务端拒绝。"
+          exit 1
